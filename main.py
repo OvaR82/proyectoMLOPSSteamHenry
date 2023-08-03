@@ -8,6 +8,8 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import pandas as pd
 from model import load_model, make_predictions
+import pickle
+
 #Comienzo de la api
 #para levantar fast api: uvicorn main:app --reload
 app = FastAPI()
@@ -44,12 +46,6 @@ replacement_values = {
 }
 df.fillna(value=replacement_values, inplace=True)
 
-
-
-
-
-
-
 # Retorna los 5 géneros más vendidos en el año indicado
 @app.get('/genero/')
 def genero(año: int):
@@ -58,7 +54,6 @@ def genero(año: int):
     exploded_genres_df = filtered_df.explode('genres')
     top_genres = exploded_genres_df['genres'].value_counts().nlargest(5).index.tolist()
     return top_genres
-
 
 # Retorna juegos lanzados en el año indicado
 @app.get('/juegos/')
@@ -74,7 +69,6 @@ def specs(año: int):
     exploded_specs_df = filtered_df.explode('specs')
     top_specs = exploded_specs_df['specs'].value_counts().nlargest(5).index.tolist()
     return top_specs
-
 
 # Retorna cantidad de juegos lanzados con early acces en el año indicado
 @app.get('/earlyacces/')
@@ -97,49 +91,22 @@ def metascore(año: int):
     top_metascore_games = filtered_df.nlargest(5, 'metascore')[['app_name', 'metascore']].set_index('app_name').to_dict()['metascore']
     return top_metascore_games
 
-# Define the request body model using Pydantic
-class FeatureData(BaseModel):
-    # Define the feature columns and their data types
-   metascore:float
-   genres_:bool
-   genres_Accounting: bool
-   genres_Action: bool
-   genres_Adventure: bool
-   genres_Animation: bool
-   genres_Audio_Production: bool
-   genres_Casual: bool
-   genres_Design: bool
-   genres_Early_Access: bool
-   genres_Education: bool
-   genres_Free_to_Play: bool
-   genres_Indie: bool
-   genres_Massively_Multiplayer: bool
-   genres_Photo_Editing: bool
-   genres_RPG: bool
-   genres_Racing: bool
-   genres_Simulation:bool
-   genres_Software_Training: bool
-   genres_Sports: bool
-   genres_Strategy: bool
-   genres_Utilities: bool
-   genres_Video: bool
-   genres_Web_Publishing:bool
+class Item(BaseModel):
+    genero: str
+    año: int
+    metascore: int
 
-# Load the trained model
-model = load_model('linear_regression_model.pkl')
+app = FastAPI()
 
-# Create a POST route for making predictions
-@app.post("/predict/")
-async def predict_price(data: FeatureData):
-    try:
-        # Convert the input data to a DataFrame
-        input_data = pd.DataFrame([data.dict()])
+model = pickle.load(open('predictions.pkl', 'rb'))
 
-        # Use the trained model to make predictions
-        predictions = make_predictions(model, input_data)
+@app.post("/prediccion/")
+async def create_prediccion(item: Item):
+    # Convertir 'genero' a números (usando one-hot encoding)
+    # Tendrías que tener una lista con todos los géneros posibles de tus datos de entrenamiento
+    genres = ['genre1', 'genre2', 'genre3', ..., 'genreN']
+    genre_data = [1 if item.genero == genre else 0 for genre in genres]
+    data = [item.año, item.metascore] + genre_data
 
-        # Return the predictions
-        return {"predictions": predictions[0]}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    price = model.predict([data])[0]
+    return {'price': price}

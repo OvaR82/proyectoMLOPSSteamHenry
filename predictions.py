@@ -7,19 +7,21 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.ensemble import RandomForestRegressor
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import joblib
+import pickle
 
 
-#lectura del json y creación data frame
+#lectura del json y creación df_unnested frame
 rows = []
 with open('steam_games.json') as f: 
     rows.extend(ast.literal_eval(line) for line in f)
 df = pd.DataFrame(rows)
 
 
-#Limpieza de data
+#Limpieza de df_unnested
 df['release_date'] = pd.to_datetime(df['release_date'], errors='coerce')
 specific_date = pd.to_datetime('1900-01-01')
 df['release_date'] = df['release_date'].fillna(specific_date)
@@ -45,54 +47,27 @@ replacement_values = {
 df.fillna(value=replacement_values, inplace=True)
 
 
-#desanidar genreros 
+#desanidar generos 
 df_unnested = df.explode('genres')
 
-dummy_df = pd.get_dummies(df_unnested['genres'], prefix='genres')
+# Convertir 'release_date' a año
+df_unnested['release_year'] = pd.to_datetime(df_unnested['release_date']).dt.year
 
-df_with_dummies = pd.concat([df_unnested, dummy_df], axis=1)
+# Convertir 'genres' a números (usando one-hot encoding)
+df_unnested = pd.get_dummies(df_unnested, columns=['genres'], prefix='', prefix_sep='')
 
-columns_to_drop = ['publisher', 'genres', 'url', 'release_date', 'tags', 'discount_price',
-                   'reviews_url', 'specs', 'early_access', 'id', 'developer', 'sentiment']
-#elimino columnas pra el modelo
-df_reduced = df_with_dummies.drop(columns_to_drop, axis=1)
-
-# dummy_app_name = pd.get_dummies(df_reduced['app_name'], prefix='app_name')
-# df_reduced = pd.concat([df_reduced, dummy_app_name], axis= 1)
-colums_to_drop_twice = ['app_name', 'title'] #elimino columnas que no sean dummies
-df_dummies_for_model = df_reduced.drop(colums_to_drop_twice,axis=1)
-
-
-#Defino features y target
-X = df_dummies_for_model.drop('price', axis=1)
-y = df_dummies_for_model['price']
-
-#train test split
+# Split en entrenamiento y prueba
+X = df_unnested[['release_year', 'metascore'] + list(df_unnested.columns[df_unnested.columns.str.contains('genres')])]
+y = df_unnested['price']
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-#modelo de machine learing
-model = LinearRegression()
-
-#entrenar el modelo
+# Entrenar modelo
+model = RandomForestRegressor()
 model.fit(X_train, y_train)
 
-# Make predictions on the test set
+# Evaluar modelo
 y_pred = model.predict(X_test)
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
 
-# Evaluate the model's performance
-mae = mean_absolute_error(y_test, y_pred)
-mse = mean_squared_error(y_test, y_pred)
-r2 = r2_score(y_test, y_pred)
-
-# print("Mean Absolute Error:", mae)
-# print("Mean Squared Error:", mse)
-# print("R-squared:", r2)
-# coefficients = pd.Series(model.coef_, index=X.columns)
-# print(coefficients)
-
-joblib.dump(model,'linear_regression_model.pkl')
-
-feature_data_types = X_train.dtypes
-
-# Print the data types of the features
-print(feature_data_types)
+# Guardar modelo
+pickle.dump(model, open('predictions.pkl', 'wb'))
